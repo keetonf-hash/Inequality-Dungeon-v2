@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Inequality Dungeon (MCQ + Progression)</title>
+  <style>
+    :root { --cell: 36px; }
+    body {
+      margin: 0;
+      font-family: system-ui, Arial, sans-serif;
+      background: #0f1115;
+      color: #e8e8e8;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .wrap { width: min(900px, 96vw); display: grid; gap: 12px; }
+    .top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .hud {
+      display: flex; gap: 14px; flex-wrap: wrap;
+      padding: 10px 12px;
+      background: #171a22;
+      border: 1px solid #2a2f3d;
+      border-radius: 12px;
+    }
+    .hud b { color: #9ad1ff; }
+    button {
+      cursor: pointer;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #2a2f3d;
+      background: #1b2030;
+      color: #e8e8e8;
+      font-weight: 700;
+    }
+    button:hover { filter: brightness(1.08); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    .game { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, var(--cell));
+      grid-template-rows: repeat(10, var(--cell));
+      gap: 2px;
+      background: #0b0d12;
+      padding: 10px;
+      border: 1px solid #2a2f3d;
+      border-radius: 14px;
+      width: fit-content;
+      overflow: hidden;
+    }
+    .cell {
+      width: var(--cell);
+      height: var(--cell);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      user-select: none;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .floor { background: #141825; }
+    .wall  { background: #2b2f3f; }
+    .player{ background: #4c9cff; color:#071018; }
+    .exit  { background: #2bd98a; color:#05140d; }
+    .door  { background: #f5c84c; color:#1a1202; }
+    .hurt  { background: #ff5a7a; color:#1a050a; }
+
+    .hint {
+      padding: 10px 12px;
+      background: #171a22;
+      border: 1px solid #2a2f3d;
+      border-radius: 12px;
+      line-height: 1.35;
+    }
+    .hint code { background:#0f1115; padding: 2px 6px; border-radius: 8px; }
+    .log {
+      padding: 10px 12px;
+      background: #111421;
+      border: 1px solid #2a2f3d;
+      border-radius: 12px;
+      min-height: 44px;
+    }
+
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.62);
+      display: none;
+      place-items: center;
+      padding: 14px;
+    }
+    .overlay.show { display: grid; }
+    .modal {
+      width: min(720px, 96vw);
+      background: #121624;
+      border: 1px solid #2a2f3d;
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.45);
+      display: grid;
+      gap: 10px;
+    }
+    .modal h2 { margin: 0; font-size: 18px; }
+    .qrow { display:flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .small { opacity: .9; font-size: 13px; }
+    .pill {
+      display:inline-block; padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #2a2f3d;
+      background: #0f1115;
+      font-size: 12px;
+      opacity: .95;
+    }
+    .ok { color:#2bd98a; }
+    .bad { color:#ff5a7a; }
+
+    .choices {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .choiceBtn{
+      text-align: left;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 12px 12px;
+      background: #0f1115;
+      border: 1px solid #2a2f3d;
+      border-radius: 14px;
+      font-weight: 800;
+    }
+    .choiceBtn:hover{ filter: brightness(1.08); }
+    .kbd {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #171a22;
+      border: 1px solid #2a2f3d;
+      font-size: 12px;
+      opacity: .95;
+      flex: 0 0 auto;
+    }
+    .choiceText { font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="hud" id="hud"></div>
+      <button id="resetBtn">Reset</button>
+    </div>
+
+    <div class="game">
+      <div class="grid" id="grid" aria-label="dungeon grid"></div>
+
+      <div class="hint">
+        Move with <b>WASD</b> or <b>Arrow Keys</b>. Yellow tiles are <b>doors</b> (inequality challenge).
+        Pink tiles are <b>traps</b> (lose HP). Green tile is the <b>exit</b>.
+        <br/><span class="small">Door answers are multiple choice. Press <code>1–4</code> or click.</span>
+      </div>
+
+      <div class="log" id="log">Find the exit. The dungeon demands… basic algebra.</div>
+    </div>
+  </div>
+
+  <!-- Question Modal -->
+  <div class="overlay" id="overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="qTitle">
+      <h2 id="qTitle">Door Challenge</h2>
+
+      <div class="qrow">
+        <div id="questionText" style="font-weight:900;font-size:16px;"></div>
+        <span class="pill" id="diffPill"></span>
+        <span class="pill" id="progPill"></span>
+      </div>
+
+      <div class="small">
+        Solve for <b>x</b>, then pick the correct solution set.
+        (Yes, the sign flips when you divide by a negative. The dungeon lives for that.)
+      </div>
+
+      <div class="choices" id="choices"></div>
+
+      <div class="qrow">
+        <button id="cancelBtn">Back Away</button>
+      </div>
+
+      <div class="small" id="feedback"></div>
+    </div>
+  </div>
+
+  <script>
+    // ========== MAP ==========
+    // # wall, . floor, P player, D door, T trap, E exit
+    const MAP = [
+      "############",
+      "#P....D....#",
+      "#.####.###.#",
+      "#....#...#.#",
+      "###..#.D.#.#",
+      "#....#...#.#",
+      "#.######.#.#",
+      "#..T...#...#",
+      "#..D...#..E#",
+      "############",
+    ];
+
+    const TILE = { WALL:"#", FLOOR:".", PLAYER:"P", DOOR:"D", TRAP:"T", EXIT:"E" };
+
+    // ========== QUESTION BANK ==========
+    // ans is the final solved statement about x
+    // difficulty is 1=Easy, 2=Medium, 3=Hard
+    const QUESTION_BANK = [
+      // Easy
+      { text: "3x - 2 > 10",        ans: { op: ">",  val: 4 },  difficulty: 1 },
+      { text: "5x + 1 ≤ 21",        ans: { op: "<=", val: 4 },  difficulty: 1 },
+      { text: "2x + 7 < 1",         ans: { op: "<",  val: -3 }, difficulty: 1 },
+      { text: "4x - 8 ≥ 0",         ans: { op: ">=", val: 2 },  difficulty: 1 },
+
+      // Medium (includes flips / distribution)
+      { text: "-4x + 6 ≥ 14",       ans: { op: "<=", val: -2 }, difficulty: 2 },
+      { text: "7 - 2x > 1",         ans: { op: "<",  val: 3 },  difficulty: 2 },
+      { text: "3(x - 2) ≤ 9",       ans: { op: "<=", val: 5 },  difficulty: 2 },
+      { text: "-2(x + 1) < 6",      ans: { op: ">",  val: -4 }, difficulty: 2 }, // -2x-2<6 => -2x<8 => x>-4
+
+      // Hard (more steps / negatives / fractions)
+      { text: "2x/3 + 5 ≥ 1",       ans: { op: ">=", val: -6 }, difficulty: 3 },
+      { text: "-(x - 4) < 2",       ans: { op: ">",  val: 2 },  difficulty: 3 },
+      { text: "4 - (2x + 1) ≤ -3",  ans: { op: ">=", val: 3 },  difficulty: 3 },
+      { text: "(x - 6)/2 > -1",     ans: { op: ">",  val: 4 },  difficulty: 3 }, // x-6>-2 => x>4
+    ];
+
+    function difficultyLabel(n){
+      return n === 1 ? "Easy" : n === 2 ? "Medium" : "Hard";
+    }
+
+    // ========== STATE ==========
+    const gridEl = document.getElementById("grid");
+    const hudEl = document.getElementById("hud");
+    const logEl = document.getElementById("log");
+
+    const overlay = document.getElementById("overlay");
+    const qTextEl = document.getElementById("questionText");
+    const diffPill = document.getElementById("diffPill");
+    const progPill = document.getElementById("progPill");
+    const choicesEl = document.getElementById("choices");
+    const feedbackEl = document.getElementById("feedback");
+
+    let map = [];
+    let player = { x: 0, y: 0 };
+    let hp = 5;
+    let score = 0;
+    let openedDoors = new Set();
+
+    let activeDoor = null; // {x,y,q,choices:[...], correctIndex}
+
+    // ========== HELPERS ==========
+    function deepCopyMap(){ return MAP.map(r => r.split("")); }
+
+    function findPlayerStart(){
+      for (let y=0; y<map.length; y++){
+        for (let x=0; x<map[0].length; x++){
+          if (map[y][x] === TILE.PLAYER) return {x,y};
+        }
+      }
+      return {x:1,y:1};
+    }
+
+    function inBounds(x,y){ return y>=0 && y<map.length && x>=0 && x<map[0].length; }
+    function tileAt(x,y){ if(!inBounds(x,y)) return TILE.WALL; return map[y][x]; }
+    function setTile(x,y,v){ if(inBounds(x,y)) map[y][x]=v; }
+
+    function log(msg){ logEl.textContent = msg; }
+
+    function updateHUD(){
+      hudEl.innerHTML = `
+        <div>HP: <b>${"❤".repeat(hp)}${"·".repeat(Math.max(0, 5-hp))}</b></div>
+        <div>Score: <b>${score}</b></div>
+        <div>Doors opened: <b>${openedDoors.size}</b></div>
+        <div>Difficulty: <b>${difficultyLabel(getProgressDifficulty())}</b></div>
+      `;
+    }
+
+    function draw(){
+      gridEl.innerHTML = "";
+      for (let y=0; y<map.length; y++){
+        for (let x=0; x<map[0].length; x++){
+          const cell = document.createElement("div");
+          cell.classList.add("cell");
+          const t = tileAt(x,y);
+
+          if (x===player.x && y===player.y){
+            cell.classList.add("player");
+            cell.textContent = "🙂";
+          } else if (t===TILE.WALL){
+            cell.classList.add("wall");
+          } else if (t===TILE.FLOOR || t===TILE.PLAYER){
+            cell.classList.add("floor");
+          } else if (t===TILE.DOOR){
+            const key = `${x},${y}`;
+            if (openedDoors.has(key)){
+              cell.classList.add("floor");
+            } else {
+              cell.classList.add("door");
+              cell.textContent = "▣";
+            }
+          } else if (t===TILE.TRAP){
+            cell.classList.add("hurt");
+            cell.textContent = "☠";
+          } else if (t===TILE.EXIT){
+            cell.classList.add("exit");
+            cell.textContent = "⟐";
+          }
+          gridEl.appendChild(cell);
+        }
+      }
+    }
+
+    // ========== PROGRESSION (FEATURE #3) ==========
+    // Change thresholds here if you want the ramp sooner/later.
+    function getProgressDifficulty(){
+      const d = openedDoors.size;
+      // 0–1 doors => Easy, 2–3 => Medium, 4+ => Hard
+      if (d <= 1) return 1;
+      if (d <= 3) return 2;
+      return 3;
+    }
+
+    function pickQuestionForProgress(){
+      const target = getProgressDifficulty();
+
+      // Allow some mixing (so it doesn't feel robotic):
+      // Easy stage: only easy
+      // Medium stage: easy + medium
+      // Hard stage: medium + hard
+      const allowed = target === 1 ? [1] : target === 2 ? [1,2] : [2,3];
+
+      const pool = QUESTION_BANK.filter(q => allowed.includes(q.difficulty));
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    // ========== MULTIPLE CHOICE (FEATURE #1) ==========
+    function opPretty(op){
+      // show nice symbols but we store simple ones
+      if (op === "<=") return "≤";
+      if (op === ">=") return "≥";
+      return op;
+    }
+
+    function solutionText(ans){
+      return `x ${opPretty(ans.op)} ${ans.val}`;
+    }
+
+    function makeDistractor(correct){
+      // Generate believable wrong answers:
+      // - offset the value
+      // - sometimes flip the inequality direction
+      const offsets = [-3,-2,-1,1,2,3,4,-4];
+      const val2 = correct.val + offsets[Math.floor(Math.random()*offsets.length)];
+
+      const flipChance = Math.random();
+      let op2 = correct.op;
+
+      if (flipChance < 0.30){
+        // flip direction but keep inclusive/exclusive consistent-ish
+        if (op2 === ">") op2 = "<";
+        else if (op2 === "<") op2 = ">";
+        else if (op2 === ">=") op2 = "<=";
+        else if (op2 === "<=") op2 = ">=";
+      } else if (flipChance < 0.45){
+        // toggle inclusive/exclusive without flipping direction
+        if (op2 === ">") op2 = ">=";
+        else if (op2 === "<") op2 = "<=";
+        else if (op2 === ">=") op2 = ">";
+        else if (op2 === "<=") op2 = "<";
+      }
+
+      return { op: op2, val: val2 };
+    }
+
+    function buildChoices(correctAns){
+      const choices = [];
+      const seen = new Set();
+
+      function add(ans){
+        const key = `${ans.op}|${ans.val}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        choices.push(ans);
+        return true;
+      }
+
+      add(correctAns);
+
+      while (choices.length < 4){
+        add(makeDistractor(correctAns));
+      }
+
+      // shuffle
+      for (let i = choices.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [choices[i], choices[j]] = [choices[j], choices[i]];
+      }
+
+      const correctIndex = choices.findIndex(c => c.op === correctAns.op && c.val === correctAns.val);
+      return { choices, correctIndex };
+    }
+
+    // ========== DOORS / COMBAT MATH ==========
+    function openDoorAt(x,y){
+      openedDoors.add(`${x},${y}`);
+      score += 10;
+      log("Door opened. Math says you may pass.");
+      updateHUD();
+      draw();
+    }
+
+    function hurtPlayer(reason){
+      hp -= 1;
+      if (hp < 0) hp = 0;
+      updateHUD();
+      if (hp === 0){
+        log(`You hit 0 HP. ${reason} Game over. Smash Reset.`);
+      } else {
+        log(reason);
+      }
+    }
+
+    function showDoorModal(doorX, doorY){
+      const q = pickQuestionForProgress();
+      const built = buildChoices(q.ans);
+
+      activeDoor = {
+        x: doorX,
+        y: doorY,
+        q,
+        choices: built.choices,
+        correctIndex: built.correctIndex,
+        locked: false
+      };
+
+      qTextEl.textContent = q.text;
+      diffPill.textContent = difficultyLabel(q.difficulty);
+      progPill.textContent = `Progress: ${difficultyLabel(getProgressDifficulty())}`;
+
+      feedbackEl.textContent = "";
+      feedbackEl.className = "small";
+
+      // render choices
+      renderChoices();
+
+      overlay.classList.add("show");
+      log("Solve it, pick the answer, earn your right to continue existing.");
+    }
+
+    function closeDoorModal(){
+      overlay.classList.remove("show");
+      activeDoor = null;
+      feedbackEl.textContent = "";
+      choicesEl.innerHTML = "";
+    }
+
+    function renderChoices(){
+      choicesEl.innerHTML = "";
+      const labels = ["1","2","3","4"];
+
+      activeDoor.choices.forEach((ans, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "choiceBtn";
+        btn.type = "button";
+        btn.disabled = activeDoor.locked;
+
+        btn.innerHTML = `
+          <span class="kbd">${labels[idx]}</span>
+          <span class="choiceText">${solutionText(ans)}</span>
+        `;
+
+        btn.addEventListener("click", () => chooseAnswer(idx));
+        choicesEl.appendChild(btn);
+      });
+    }
+
+    function chooseAnswer(index){
+      if (!activeDoor || activeDoor.locked) return;
+      activeDoor.locked = true;
+      renderChoices();
+
+      const correctIdx = activeDoor.correctIndex;
+      const correctAns = activeDoor.choices[correctIdx];
+
+      if (index === correctIdx){
+        feedbackEl.textContent = "Correct. Door opened.";
+        feedbackEl.className = "small ok";
+        openDoorAt(activeDoor.x, activeDoor.y);
+        setTimeout(closeDoorModal, 450);
+      } else {
+        feedbackEl.textContent = `Nope. Correct answer is: ${solutionText(correctAns)}`;
+        feedbackEl.className = "small bad";
+        hurtPlayer("Wrong answer. The dungeon zaps you for 1 HP.");
+        setTimeout(closeDoorModal, 950);
+      }
+    }
+
+    // ========== MOVEMENT ==========
+    function tryMove(dx, dy){
+      if (overlay.classList.contains("show")) return;
+      if (hp === 0) return;
+
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+
+      const t = tileAt(nx, ny);
+
+      if (t === TILE.WALL){
+        log("Bonk. Wall.");
+        return;
+      }
+
+      if (t === TILE.DOOR){
+        const key = `${nx},${ny}`;
+        if (openedDoors.has(key)){
+          player.x = nx; player.y = ny;
+          log("Through the opened door.");
+          draw();
+        } else {
+          showDoorModal(nx, ny);
+        }
+        return;
+      }
+
+      player.x = nx; player.y = ny;
+
+      if (t === TILE.TRAP){
+        hurtPlayer("Trap! You lose 1 HP. The floor was spicy.");
+      } else if (t === TILE.EXIT){
+        score += 50;
+        updateHUD();
+        draw();
+        log(`You escaped! Score ${score}. The dungeon is mad you can do algebra.`);
+        return;
+      } else {
+        log("…");
+      }
+
+      draw();
+    }
+
+    // ========== RESET ==========
+    function resetGame(){
+      map = deepCopyMap();
+      openedDoors = new Set();
+      hp = 5;
+      score = 0;
+
+      player = findPlayerStart();
+      setTile(player.x, player.y, TILE.FLOOR);
+
+      updateHUD();
+      draw();
+      log("Find the exit. Doors demand inequality solutions.");
+      closeDoorModal();
+    }
+
+    // ========== INPUT ==========
+    document.addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+
+      // Door modal: pick 1-4, escape closes
+      if (overlay.classList.contains("show")){
+        if (k === "escape") closeDoorModal();
+        if (k === "1") chooseAnswer(0);
+        if (k === "2") chooseAnswer(1);
+        if (k === "3") chooseAnswer(2);
+        if (k === "4") chooseAnswer(3);
+        return;
+      }
+
+      if (k === "arrowup" || k === "w") tryMove(0, -1);
+      if (k === "arrowdown" || k === "s") tryMove(0,  1);
+      if (k === "arrowleft" || k === "a") tryMove(-1, 0);
+      if (k === "arrowright" || k === "d") tryMove( 1, 0);
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", resetGame);
+    document.getElementById("cancelBtn").addEventListener("click", closeDoorModal);
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeDoorModal();
+    });
+
+    // start
+    resetGame();
+  </script>
+</body>
+</html>
